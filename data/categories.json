@@ -1,0 +1,56 @@
+[
+  {
+    "id": "cat-1",
+    "name": "Marble & Granite Polishing Materials",
+    "slug": "marble-granite-polishing",
+    "shortDescription": "Diamond abrasive pads, sealers, color enhancers, crystallization powders, and waxes.",
+    "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuCSXCIJPEceZGNuZyqKbhC8_BQArcQi3WMXEc0P1DzHrfhrQ3TAanwLtSHf3WCpP5t5jzjixohSK2FmRJXb0xDrW1BJr5WPP7Rce_dYV-5Q8wfaBDnS8Gq0HO83ki9DIQB9bzdanqfEYyU4zAgyMTbGdGs-wJu61xNxNbQPEvIN0wqzXv2_eVGH1lslY0QvOmjIkfsX0weN7Qp_4kELbQkg0tyCMS_Xi-Wx8DneX7w",
+    "badge": "Popular Stone Care",
+    "itemCount": 10
+  },
+  {
+    "id": "cat-2",
+    "name": "Tile Adhesives & Epoxy Grouts",
+    "slug": "tile-adhesives-grouts",
+    "shortDescription": "C2TE polymer modified cementitious mortars, deformable adhesives, and stainproof epoxy grouts.",
+    "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuBeoZYmTrs_yLq1prgjvaNCPPC6J_Ea5xGczV6kyoXDehfNHzNbDtiqmLqT41xcWt0gdaW8usv90WFFVf2kUzXc8XZYv0Ch4aBHOkhPHW9gR3MeZH522cVifBkHomR06n3jcwlg4VG20eak7SI0YPFtGVD0uhkd6YzZEckhfegnFBXUsfLAlaWRu6-wCiHO4glrSUkN3jyAsa48B_ZNRfWZbEIuv7TyIHeyz-B9620",
+    "badge": "Installation Essentials",
+    "itemCount": 5
+  },
+  {
+    "id": "cat-3",
+    "name": "Marble & Granite Cutting Accessories",
+    "slug": "cutting-accessories",
+    "shortDescription": "Industrial diamond circular saw blades, profile design blades, and diamond core drill bits.",
+    "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuDqiqY1GhZKS055MK6JQ7ITuIbGXK4SAoK-Ad0cqPhZJ3KwgNi87dcWA597tyh-0IyhCqifY-O_f4iRHOckcwkoM7uOBOx4RwhshmcqCj735uTHilN_kS38tYM8sY5DkbQycAnq41aIcSawXDmI4j7Qqva3756Hp3Ops3ckra0vmPQu0EZsC0qC7Im8u-8jToaKcFMzsOu_5gyxRoVAK_yKizz42CJcuMMa5h3T-t4",
+    "badge": "Precision Blades",
+    "itemCount": 3
+  },
+  {
+    "id": "cat-4",
+    "name": "Machines & Tools",
+    "slug": "machines-tools",
+    "shortDescription": "Heavy-duty angle grinders, marble cutters, electronic stone polishers, blowers, and drills.",
+    "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuByScbVSwEgvVeUdw9Eqji-o_SeSf1PskarxOK2T-9zsI5JjM9w27aRBDAPv5jaxRaLZXjPk1qOCn5xVVtOroFUgQporxq_iSnsLmufH6ArtVGELig_UzUZb_tM9BdSt3f5EOdazfe0vaUlcfaPzx4M0FVP6k7VV0mVgtfAIbA-43LKLHrsywvq_mnqi4UMFrh1ZyQxKwgD4zkj9hK4CIhaKhFZOOXgWAHvQCy35DI",
+    "badge": "Power Tools",
+    "itemCount": 3
+  },
+  {
+    "id": "cat-5",
+    "name": "Floor Covering Materials",
+    "slug": "floor-covering",
+    "shortDescription": "PP corrugated protection sheets, PVC flooring rolls, foam rolls, and heavy-duty masking tapes.",
+    "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuB3EMtZtIiMAe0OsLW0py8aaFfD-Qgqurf-fb0mcctjTFuHv7XTR0X1SeiO9gFJmEFaJD75exTeRiE8UQZvxMnEmp5ZkbUNyUMvRBWDnV6lqajO6c6oPLPod5nqn8gjJvQF4xh1IoN1FOFUSGrtw-_66OWEEGphVsI3J8k5yURhedst6azFSHvIwESEI-v3uw00HDeCiR0H5byK6apVIc97rTtgvXUhxlP5XGh5vtA",
+    "badge": "Surface Protection",
+    "itemCount": 3
+  },
+  {
+    "id": "cat-6",
+    "name": "Additional Essentials",
+    "slug": "additional-essentials",
+    "shortDescription": "Fevikwik 203, My T Look 743, metal pastes, stain removers, suction cups, and mixer rods.",
+    "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuCSXCIJPEceZGNuZyqKbhC8_BQArcQi3WMXEc0P1DzHrfhrQ3TAanwLtSHf3WCpP5t5jzjixohSK2FmRJXb0xDrW1BJr5WPP7Rce_dYV-5Q8wfaBDnS8Gq0HO83ki9DIQB9bzdanqfEYyU4zAgyMTbGdGs-wJu61xNxNbQPEvIN0wqzXv2_eVGH1lslY0QvOmjIkfsX0weN7Qp_4kELbQkg0tyCMS_Xi-Wx8DneX7w",
+    "badge": "Utility Hardware",
+    "itemCount": 3
+  }
+]

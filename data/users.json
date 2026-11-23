@@ -1,0 +1,12 @@
+[
+  {
+    "_id": "admin-1",
+    "name": "NS Admin",
+    "email": "admin@nsstonechemicals.com",
+    "phone": "+91 97388 93424",
+    "password": "bc4db4cf2f6d58101792f1ff72dbc763:302aa6beef75724b530d91e513f3a633ab54de4c450f69fde4bb787f17b8f2236f589faef041ccfc2f7d56084cd133e9edebc2e519b605b50ad34f1a42646a9f",
+    "role": "admin",
+    "addresses": [],
+    "wishlist": []
+  }
+]
