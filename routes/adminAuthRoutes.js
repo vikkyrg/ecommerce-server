@@ -25,7 +25,25 @@ router.post('/login', async (req, res) => {
 
     // 1. Check MongoDB if connected
     if (User.db?.readyState === 1) {
-      const user = await User.findOne({ email: cleanEmail });
+      let user = await User.findOne({ email: cleanEmail });
+
+      // If user not in MongoDB yet, check if it matches the default admin credentials and seed on-the-fly
+      if (!user) {
+        const defaultAdminEmail = (process.env.ADMIN_EMAIL || 'admin@nsstonechemicals.com').toLowerCase().trim();
+        const defaultAdminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+        if (cleanEmail === defaultAdminEmail && password === defaultAdminPassword) {
+          user = await User.create({
+            name: 'NS Admin',
+            email: defaultAdminEmail,
+            phone: '+91 97388 93424',
+            password: defaultAdminPassword,
+            role: 'admin',
+            addresses: [],
+            wishlist: []
+          });
+        }
+      }
+
       if (user && (await user.matchPassword(password))) {
         if (user.role !== 'admin') {
           return res.status(403).json({ message: 'Access denied: Administrator privileges required.' });

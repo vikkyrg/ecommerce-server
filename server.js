@@ -7,6 +7,7 @@ import authRoutes from './routes/authRoutes.js';
 import orderRoutes from './routes/orderRoutes.js';
 import adminAuthRoutes from './routes/adminAuthRoutes.js';
 import { seedCategoriesIfEmpty } from './controllers/categoryController.js';
+import { seedAdmin } from './controllers/authController.js';
 
 dotenv.config();
 
@@ -16,6 +17,7 @@ const PORT = process.env.PORT || 5000;
 // Connect to MongoDB
 connectDB().then(() => {
   seedCategoriesIfEmpty();
+  seedAdmin();
 });
 
 // Middleware - allow generous limit for Base64 image uploads

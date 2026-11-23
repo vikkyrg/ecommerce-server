@@ -25,21 +25,49 @@ const saveLocalUsers = users => {
   } catch (e) {}
 };
 
-// Seed default admin if needed
-const seedAdmin = () => {
-  const users = getLocalUsers();
-  if (!users.find(u => u.email === 'admin@nsstonechemicals.com')) {
-    users.push({
-      _id: 'admin-1',
-      name: 'NS Admin',
-      email: 'admin@nsstonechemicals.com',
-      phone: '+91 97388 93424',
-      password: hashPassword('admin123'),
-      role: 'admin',
-      addresses: [],
-      wishlist: []
-    });
-    saveLocalUsers(users);
+// Seed default admin if needed (local fallback and MongoDB)
+export const seedAdmin = async () => {
+  try {
+    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@nsstonechemicals.com').toLowerCase().trim();
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+
+    // 1. Seed into MongoDB if connected
+    if (User.db?.readyState === 1) {
+      const existing = await User.findOne({ email: adminEmail });
+      if (!existing) {
+        await User.create({
+          name: 'NS Admin',
+          email: adminEmail,
+          phone: '+91 97388 93424',
+          password: adminPassword, // will be hashed by pre('save') hook
+          role: 'admin',
+          addresses: [],
+          wishlist: []
+        });
+        console.log(`[Auth] Default admin (${adminEmail}) seeded in MongoDB.`);
+      } else if (existing.role !== 'admin') {
+        existing.role = 'admin';
+        await existing.save();
+      }
+    }
+
+    // 2. Seed into local JSON fallback
+    const users = getLocalUsers();
+    if (!users.find(u => u.email === adminEmail)) {
+      users.push({
+        _id: 'admin-1',
+        name: 'NS Admin',
+        email: adminEmail,
+        phone: '+91 97388 93424',
+        password: hashPassword(adminPassword),
+        role: 'admin',
+        addresses: [],
+        wishlist: []
+      });
+      saveLocalUsers(users);
+    }
+  } catch (err) {
+    console.warn('[Auth] Admin seeding warning:', err.message);
   }
 };
 seedAdmin();
