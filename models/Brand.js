@@ -6,11 +6,14 @@ const brandSchema = new mongoose.Schema(
     slug: { type: String, required: true, unique: true, lowercase: true, trim: true },
     logo: { type: String, default: '' },
     description: { type: String, default: '' },
-    categories: [{ type: String, trim: true }], // category slugs or IDs
-    isActive: { type: Boolean, default: true }
+    categories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Category' }],
+    isActive: { type: Boolean, default: true },
+    supplierNotes: [{ type: String, trim: true }]
   },
   { timestamps: true }
 );
+
+brandSchema.index({ categories: 1 });
 
 const Brand = mongoose.models.Brand || mongoose.model('Brand', brandSchema);
 export default Brand;

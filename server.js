@@ -1,5 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
+import mongoose from 'mongoose';
+import cors from 'cors';
 import connectDB from './config/db.js';
 import productRoutes from './routes/productRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
@@ -8,8 +10,9 @@ import catalogRoutes from './routes/catalogRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import orderRoutes from './routes/orderRoutes.js';
 import adminAuthRoutes from './routes/adminAuthRoutes.js';
-import { seedCategoriesIfEmpty } from './controllers/categoryController.js';
-import { seedProductsFromExcelIfEmpty } from './controllers/productController.js';
+import imageRoutes from './routes/imageRoutes.js';
+import enquiryRoutes from './routes/enquiryRoutes.js';
+import customerRoutes from './routes/customerRoutes.js';
 import { seedAdmin } from './controllers/authController.js';
 
 dotenv.config();
@@ -17,10 +20,44 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// ── CORS ──────────────────────────────────────────────────────────────────────
+// Allow Vite dev servers (5173/5174) and production Vercel deployments
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  process.env.CLIENT_URL,
+  process.env.ADMIN_URL
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    // Allow any *.vercel.app origin in production
+    if (origin.endsWith('.vercel.app')) return callback(null, true);
+    console.warn(`[CORS] Blocked origin: ${origin}`);
+    return callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// ── Request Logger (dev) ──────────────────────────────────────────────────────
+if (process.env.NODE_ENV !== 'production') {
+  app.use((req, _res, next) => {
+    const dbState = mongoose.connection.readyState;
+    const dbLabel = ['disconnected', 'connected', 'connecting', 'disconnecting'][dbState] || 'unknown';
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}  db:${dbLabel}`);
+    next();
+  });
+}
+
 // Connect to MongoDB
 connectDB().then(() => {
-  seedCategoriesIfEmpty();
-  seedProductsFromExcelIfEmpty();
   seedAdmin();
 });
 
@@ -36,14 +73,25 @@ app.use('/api/catalog', catalogRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/admin/auth', adminAuthRoutes);
+app.use('/api/images', imageRoutes);
+app.use('/api/enquiries', enquiryRoutes);
+app.use('/api/admin/enquiries', enquiryRoutes); // Alias for direct admin access
+app.use('/api/admin/customers', customerRoutes);
 
-// Contact endpoint
-app.post('/api/contact', (req, res) => {
-  const { name, email, phone, subject, message } = req.body;
-  if (!name || !email || !phone || !message) {
-    return res.status(400).json({ message: 'Please provide all required fields' });
+// Contact endpoint - saves to Enquiry model as well
+app.post('/api/contact', async (req, res, next) => {
+  try {
+    const { name, email, phone, subject, message } = req.body;
+    if (!name || !email || !phone || !message) {
+      return res.status(400).json({ success: false, message: 'Please provide all required fields' });
+    }
+    // Forward internally to submitEnquiry logic
+    req.body.customerName = name;
+    const { submitEnquiry } = await import('./controllers/enquiryController.js');
+    return submitEnquiry(req, res, next);
+  } catch (err) {
+    next(err);
   }
-  res.json({ success: true, message: 'Message received successfully. Our team will contact you shortly.' });
 });
 
 // Coupon validation
@@ -86,17 +134,47 @@ app.post('/api/coupons/validate', (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'NS Stone Chemicals API & Admin Backend', timestamp: new Date() });
+  const readyState = mongoose.connection.readyState;
+  const isMongoConnected = readyState === 1;
+  const dbStatus = ['disconnected', 'connected', 'connecting', 'disconnecting'][readyState] || 'unknown';
+
+  const payload = {
+    success: isMongoConnected,
+    status: isMongoConnected ? 'healthy' : 'degraded',
+    service: 'NS Stone Chemicals API & Admin Backend',
+    database: dbStatus,
+    timestamp: new Date().toISOString()
+  };
+
+  // Return 503 when MongoDB is not connected so load-balancers/health checks
+  // correctly detect the backend as unavailable
+  return res.status(isMongoConnected ? 200 : 503).json(payload);
 });
 
 // Centralized error handling
 app.use((err, req, res, next) => {
-  console.error('Server Error:', err.stack);
-  res.status(err.status || 500).json({
-    message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message
+  const status = err.status || err.statusCode || 500;
+  const isDev = process.env.NODE_ENV !== 'production';
+
+  console.error(`[ERROR] ${req.method} ${req.url} → ${status}: ${err.message}`);
+  if (isDev && err.stack) console.error(err.stack);
+
+  res.status(status).json({
+    success: false,
+    message: isDev ? err.message : (status < 500 ? err.message : 'Internal Server Error')
   });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`NS Stone Chemicals Server running on http://localhost:${PORT}`);
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n[ERROR] Port ${PORT} is already in use by another process.`);
+    console.error(`To fix this on Windows PowerShell, run:\nGet-NetTCPConnection -LocalPort ${PORT} | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }\n`);
+    process.exit(1);
+  } else {
+    console.error('Server Listen Error:', err);
+  }
 });

@@ -70,7 +70,6 @@ export const seedAdmin = async () => {
     console.warn('[Auth] Admin seeding warning:', err.message);
   }
 };
-seedAdmin();
 
 // @desc    Register new customer
 // @route   POST /api/auth/register

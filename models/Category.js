@@ -6,6 +6,7 @@ const categorySchema = new mongoose.Schema(
     slug: { type: String, required: true, unique: true, lowercase: true, trim: true },
     description: { type: String, default: '' },
     image: { type: String, default: '' },
+    imageId: { type: mongoose.Schema.Types.ObjectId, ref: 'images.files', default: null },
     displayOrder: { type: Number, default: 0 },
     itemCount: { type: Number, default: 0 },
     seoTitle: { type: String, default: '' },
