@@ -3,10 +3,13 @@ import dotenv from 'dotenv';
 import connectDB from './config/db.js';
 import productRoutes from './routes/productRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
+import brandRoutes from './routes/brandRoutes.js';
+import catalogRoutes from './routes/catalogRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import orderRoutes from './routes/orderRoutes.js';
 import adminAuthRoutes from './routes/adminAuthRoutes.js';
 import { seedCategoriesIfEmpty } from './controllers/categoryController.js';
+import { seedProductsFromExcelIfEmpty } from './controllers/productController.js';
 import { seedAdmin } from './controllers/authController.js';
 
 dotenv.config();
@@ -17,6 +20,7 @@ const PORT = process.env.PORT || 5000;
 // Connect to MongoDB
 connectDB().then(() => {
   seedCategoriesIfEmpty();
+  seedProductsFromExcelIfEmpty();
   seedAdmin();
 });
 
@@ -27,6 +31,8 @@ app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 // Routes
 app.use('/api/products', productRoutes);
 app.use('/api/categories', categoryRoutes);
+app.use('/api/brands', brandRoutes);
+app.use('/api/catalog', catalogRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/admin/auth', adminAuthRoutes);

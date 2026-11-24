@@ -6,7 +6,10 @@ const categorySchema = new mongoose.Schema(
     slug: { type: String, required: true, unique: true, lowercase: true, trim: true },
     description: { type: String, default: '' },
     image: { type: String, default: '' },
+    displayOrder: { type: Number, default: 0 },
     itemCount: { type: Number, default: 0 },
+    seoTitle: { type: String, default: '' },
+    seoDescription: { type: String, default: '' },
     isActive: { type: Boolean, default: true }
   },
   { timestamps: true }

@@ -2,6 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import Product from '../models/Product.js';
+import Category from '../models/Category.js';
+import Brand from '../models/Brand.js';
+import { parseWebsiteExcel } from '../utils/catalogParser.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +24,28 @@ const saveLocalProducts = prods => {
   } catch (e) {}
 };
 
+// Seed products from Excel if database / local is empty
+export const seedProductsFromExcelIfEmpty = async () => {
+  try {
+    const { products: parsedProducts } = parseWebsiteExcel();
+
+    if (Product.db?.readyState === 1) {
+      const count = await Product.countDocuments();
+      if (count === 0) {
+        await Product.insertMany(parsedProducts);
+        console.log(`[Product] Seeded ${parsedProducts.length} Excel products into MongoDB.`);
+      }
+    }
+
+    const local = getLocalProducts();
+    if (local.length === 0) {
+      saveLocalProducts(parsedProducts);
+    }
+  } catch (err) {
+    console.warn('Product seed error:', err.message);
+  }
+};
+
 // @desc    Get all products with search, filter, sort & pagination
 // @route   GET /api/products
 export const getProducts = async (req, res) => {
@@ -32,122 +57,149 @@ export const getProducts = async (req, res) => {
       minPrice,
       maxPrice,
       inStock,
+      activeOnly,
+      isFeatured,
+      isBestSeller,
       sort,
       page = 1,
-      limit = 40
+      limit = 50
     } = req.query;
 
-    let items = getLocalProducts();
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
 
     // Try MongoDB if connected
     if (Product.db?.readyState === 1) {
       try {
         const query = {};
-        if (search) {
+
+        if (activeOnly !== 'false') {
+          query.isActive = { $ne: false };
+        }
+
+        if (search && search.trim()) {
+          const s = search.trim();
           query.$or = [
-            { name: { $regex: search, $options: 'i' } },
-            { brand: { $regex: search, $options: 'i' } },
-            { category: { $regex: search, $options: 'i' } }
+            { name: { $regex: s, $options: 'i' } },
+            { brand: { $regex: s, $options: 'i' } },
+            { category: { $regex: s, $options: 'i' } },
+            { sku: { $regex: s, $options: 'i' } }
           ];
         }
+
         if (category && category !== 'All Categories' && category !== 'All Products' && category !== 'all') {
-          query.category = { $regex: category, $options: 'i' };
+          query.$or = [
+            { category: { $regex: `^${category}$`, $options: 'i' } },
+            { category: { $regex: category, $options: 'i' } }
+          ];
         }
+
         if (brand && brand !== 'All Brands' && brand !== 'all') {
-          query.brand = { $regex: brand, $options: 'i' };
+          query.brand = { $regex: `^${brand}$`, $options: 'i' };
         }
+
         if (inStock === 'true') {
           query.inStock = true;
         }
+
+        if (isFeatured === 'true') {
+          query.isFeatured = true;
+        }
+
+        if (isBestSeller === 'true') {
+          query.isBestSeller = true;
+        }
+
         if (minPrice || maxPrice) {
           query.price = {};
           if (minPrice) query.price.$gte = Number(minPrice);
           if (maxPrice) query.price.$lte = Number(maxPrice);
         }
 
-        let sortOption = {};
+        let sortOption = { createdAt: -1 };
         if (sort === 'price-asc' || sort === 'price-low') sortOption = { price: 1 };
         else if (sort === 'price-desc' || sort === 'price-high') sortOption = { price: -1 };
         else if (sort === 'newest') sortOption = { createdAt: -1 };
         else if (sort === 'name') sortOption = { name: 1 };
-        else sortOption = { isFeatured: -1, rating: -1 };
+        else if (sort === 'rating') sortOption = { rating: -1 };
 
         const total = await Product.countDocuments(query);
         const dbProducts = await Product.find(query)
           .sort(sortOption)
-          .skip((Number(page) - 1) * Number(limit))
-          .limit(Number(limit));
+          .skip((pageNum - 1) * limitNum)
+          .limit(limitNum);
 
-        if (dbProducts && dbProducts.length > 0) {
-          return res.json({
-            products: dbProducts,
-            total,
-            page: Number(page),
-            pages: Math.ceil(total / Number(limit))
-          });
-        }
+        return res.json({
+          products: dbProducts,
+          total,
+          page: pageNum,
+          pages: Math.ceil(total / limitNum) || 1
+        });
       } catch (err) {
         console.warn('Falling back to local product dataset:', err.message);
       }
     }
 
     // In-Memory filtering
-    if (search) {
-      const q = search.toLowerCase();
+    let items = getLocalProducts();
+
+    if (activeOnly !== 'false') {
+      items = items.filter(p => p.isActive !== false);
+    }
+
+    if (search && search.trim()) {
+      const q = search.trim().toLowerCase();
       items = items.filter(
         p =>
-          p.name.toLowerCase().includes(q) ||
-          p.brand.toLowerCase().includes(q) ||
-          p.category.toLowerCase().includes(q) ||
-          (p.description && p.description.toLowerCase().includes(q)) ||
-          p.sku.toLowerCase().includes(q)
+          (p.name && p.name.toLowerCase().includes(q)) ||
+          (p.brand && p.brand.toLowerCase().includes(q)) ||
+          (p.category && p.category.toLowerCase().includes(q)) ||
+          (p.sku && p.sku.toLowerCase().includes(q))
       );
     }
 
-    if (category && category !== 'All Categories' && category !== 'All Products' && category !== 'all' && category !== 'All') {
+    if (category && category !== 'All Categories' && category !== 'All Products' && category !== 'all') {
+      const catLower = category.toLowerCase();
       items = items.filter(
-        p => p.category.toLowerCase() === category.toLowerCase() ||
-             p.category.toLowerCase().includes(category.toLowerCase())
+        p => (p.category && p.category.toLowerCase() === catLower) || (p.category && p.category.toLowerCase().includes(catLower))
       );
     }
 
     if (brand && brand !== 'All Brands' && brand !== 'all') {
-      items = items.filter(p => p.brand.toLowerCase() === brand.toLowerCase());
+      const bLower = brand.toLowerCase();
+      items = items.filter(p => p.brand && p.brand.toLowerCase() === bLower);
     }
 
     if (inStock === 'true') {
       items = items.filter(p => p.inStock === true);
     }
 
-    if (minPrice) {
-      items = items.filter(p => p.price >= Number(minPrice));
+    if (isFeatured === 'true') {
+      items = items.filter(p => p.isFeatured === true);
     }
 
-    if (maxPrice) {
-      items = items.filter(p => p.price <= Number(maxPrice));
+    if (isBestSeller === 'true') {
+      items = items.filter(p => p.isBestSeller === true);
     }
 
-    if (sort === 'price-asc' || sort === 'price-low') {
-      items.sort((a, b) => a.price - b.price);
-    } else if (sort === 'price-desc' || sort === 'price-high') {
-      items.sort((a, b) => b.price - a.price);
-    } else if (sort === 'newest') {
-      items.reverse();
-    } else if (sort === 'name') {
-      items.sort((a, b) => a.name.localeCompare(b.name));
-    } else {
-      items.sort((a, b) => (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0) || (b.rating || 0) - (a.rating || 0));
-    }
+    if (minPrice) items = items.filter(p => p.price >= Number(minPrice));
+    if (maxPrice) items = items.filter(p => p.price <= Number(maxPrice));
+
+    // Sort
+    if (sort === 'price-asc' || sort === 'price-low') items.sort((a, b) => (a.price || 0) - (b.price || 0));
+    else if (sort === 'price-desc' || sort === 'price-high') items.sort((a, b) => (b.price || 0) - (a.price || 0));
+    else if (sort === 'name') items.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    else if (sort === 'rating') items.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    else items.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
     const total = items.length;
-    const startIndex = (Number(page) - 1) * Number(limit);
-    const paginated = items.slice(startIndex, startIndex + Number(limit));
+    const paginated = items.slice((pageNum - 1) * limitNum, pageNum * limitNum);
 
     res.json({
       products: paginated,
       total,
-      page: Number(page),
-      pages: Math.ceil(total / Number(limit))
+      page: pageNum,
+      pages: Math.ceil(total / limitNum) || 1
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -158,33 +210,53 @@ export const getProducts = async (req, res) => {
 // @route   GET /api/products/featured
 export const getFeaturedProducts = async (req, res) => {
   try {
-    const prods = getLocalProducts();
-    const featured = prods.filter(p => p.isFeatured || p.isBestSeller).slice(0, 8);
-    res.json(featured.length > 0 ? featured : prods.slice(0, 8));
+    if (Product.db?.readyState === 1) {
+      const prods = await Product.find({
+        $or: [{ isFeatured: true }, { isBestSeller: true }],
+        isActive: { $ne: false }
+      }).limit(8);
+
+      if (prods && prods.length > 0) return res.json(prods);
+    }
+
+    const local = getLocalProducts().filter(p => p.isActive !== false);
+    const featured = local.filter(p => p.isFeatured || p.isBestSeller).slice(0, 8);
+    res.json(featured.length > 0 ? featured : local.slice(0, 8));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// @desc    Get product by ID or SKU or Slug
+// @desc    Get single product by ID, slug or SKU
 // @route   GET /api/products/:id
 export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
-    const prods = getLocalProducts();
 
-    const product = prods.find(
+    if (Product.db?.readyState === 1) {
+      const isObjectId = id.match(/^[0-9a-fA-F]{24}$/);
+      const prod = await Product.findOne({
+        $or: [
+          ...(isObjectId ? [{ _id: id }] : []),
+          { slug: id.toLowerCase() },
+          { sku: id.toUpperCase() }
+        ]
+      });
+      if (prod) return res.json(prod);
+    }
+
+    const local = getLocalProducts();
+    const cleanId = id.toLowerCase();
+    const prod = local.find(
       p =>
         p.id === id ||
-        p.sku === id ||
         p._id === id ||
-        (p.name && p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') === id.toLowerCase())
+        (p.slug && p.slug.toLowerCase() === cleanId) ||
+        (p.sku && p.sku.toUpperCase() === id.toUpperCase())
     );
 
-    if (!product) {
-      return res.status(404).json({ message: 'Product not found' });
-    }
-    res.json(product);
+    if (!prod) return res.status(404).json({ message: 'Product not found' });
+    res.json(prod);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -197,65 +269,109 @@ export const createProduct = async (req, res) => {
     const {
       name,
       brand,
-      sku,
       category,
-      subcategory,
-      description,
-      price,
-      mrp,
+      subcategory = '',
+      description = '',
+      shortDescription = '',
+      sku,
+      price = 0,
+      mrp = 0,
       discount = 0,
-      stock = 10,
-      size,
-      unit,
-      image,
+      stock = 50,
+      size = 'Standard',
+      weight = '',
+      unit = 'Piece',
+      image = '',
+      productImages = [],
+      variants = [],
+      specifications = {},
       isFeatured = false,
       isBestSeller = false,
       inStock = true,
-      specifications
+      isActive = true,
+      seoTitle = '',
+      seoDescription = ''
     } = req.body;
 
-    if (!name || !brand || !sku || !category || !price) {
-      return res.status(400).json({ message: 'Please provide required product fields' });
+    if (!name || !name.trim()) {
+      return res.status(400).json({ message: 'Product name is required' });
+    }
+    if (!category) {
+      return res.status(400).json({ message: 'Category is required' });
     }
 
-    const prods = getLocalProducts();
-    const id = `prod-${Date.now()}`;
+    const cleanName = name.trim();
+    const cleanBrand = (brand || 'NS Stone Chemicals').trim();
+    const cleanSlug = `${cleanName}-${cleanBrand}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const cleanSku = (sku || `NSC-${cleanBrand.slice(0, 3).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`).toUpperCase().trim();
 
+    if (Product.db?.readyState === 1) {
+      const prod = await Product.create({
+        name: cleanName,
+        slug: cleanSlug,
+        brand: cleanBrand,
+        category,
+        subcategory,
+        description,
+        shortDescription,
+        sku: cleanSku,
+        price: Number(price) || 0,
+        mrp: Number(mrp) || Math.round(Number(price) * 1.15) || 0,
+        discount: Number(discount) || 0,
+        stock: Number(stock) || 50,
+        size,
+        weight,
+        unit,
+        image: image || (productImages.length > 0 ? productImages[0] : ''),
+        productImages: productImages.length > 0 ? productImages : (image ? [image] : []),
+        variants,
+        specifications,
+        isFeatured: Boolean(isFeatured),
+        isBestSeller: Boolean(isBestSeller),
+        inStock: Boolean(inStock),
+        isActive: Boolean(isActive),
+        seoTitle,
+        seoDescription
+      });
+      return res.status(201).json(prod);
+    }
+
+    // Local fallback
+    const prods = getLocalProducts();
     const newProd = {
-      id,
-      name,
-      brand,
-      sku: sku.toUpperCase(),
+      _id: `prod-${Date.now()}`,
+      id: `prod-${Date.now()}`,
+      name: cleanName,
+      slug: cleanSlug,
+      brand: cleanBrand,
       category,
-      subcategory: subcategory || category,
-      description: description || name,
-      price: Number(price),
-      mrp: mrp ? Number(mrp) : Math.round(Number(price) * 1.15),
-      discount: discount ? Number(discount) : 0,
-      stock: Number(stock),
-      size: size || 'Standard',
-      unit: unit || 'Piece',
-      image: image || 'https://lh3.googleusercontent.com/aida-public/AB6AXuCSXCIJPEceZGNuZyqKbhC8_BQArcQi3WMXEc0P1DzHrfhrQ3TAanwLtSHf3WCpP5t5jzjixohSK2FmRJXb0xDrW1BJr5WPP7Rce_dYV-5Q8wfaBDnS8Gq0HO83ki9DIQB9bzdanqfEYyU4zAgyMTbGdGs-wJu61xNxNbQPEvIN0wqzXv2_eVGH1lslY0QvOmjIkfsX0weN7Qp_4kELbQkg0tyCMS_Xi-Wx8DneX7w',
-      rating: 4.8,
-      reviewsCount: 12,
+      subcategory,
+      description,
+      shortDescription,
+      sku: cleanSku,
+      price: Number(price) || 0,
+      mrp: Number(mrp) || Math.round(Number(price) * 1.15) || 0,
+      discount: Number(discount) || 0,
+      stock: Number(stock) || 50,
+      size,
+      weight,
+      unit,
+      image: image || (productImages.length > 0 ? productImages[0] : ''),
+      productImages: productImages.length > 0 ? productImages : (image ? [image] : []),
+      variants,
+      specifications,
       isFeatured: Boolean(isFeatured),
       isBestSeller: Boolean(isBestSeller),
       inStock: Boolean(inStock),
-      specifications: specifications || { Brand: brand, Category: category }
+      isActive: Boolean(isActive),
+      seoTitle,
+      seoDescription,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
     prods.unshift(newProd);
     saveLocalProducts(prods);
-
-    // Sync to client catalog data as well
-    try {
-      const clientCatalogPath = path.join(__dirname, '../../client/src/data/catalogData.js');
-      if (fs.existsSync(clientCatalogPath)) {
-        const cats = JSON.parse(fs.readFileSync(path.join(__dirname, '../data/categories.json'), 'utf8'));
-        const content = `export const categories = ${JSON.stringify(cats, null, 2)};\n\nexport const products = ${JSON.stringify(prods, null, 2)};\n\nexport const filterProducts = ({ category, search, brand, sort } = {}) => {\n  let result = [...products];\n  if (category && category !== "all" && category !== "All Products") {\n    result = result.filter(p => p.category.toLowerCase() === category.toLowerCase() || p.category.toLowerCase().includes(category.toLowerCase()));\n  }\n  if (brand && brand !== "all") result = result.filter(p => p.brand.toLowerCase() === brand.toLowerCase());\n  if (search && search.trim() !== "") {\n    const q = search.toLowerCase();\n    result = result.filter(p => p.name.toLowerCase().includes(q) || p.brand.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q));\n  }\n  if (sort === "price-low") result.sort((a, b) => a.price - b.price);\n  else if (sort === "price-high") result.sort((a, b) => b.price - a.price);\n  else if (sort === "rating") result.sort((a, b) => b.rating - a.rating);\n  else if (sort === "name") result.sort((a, b) => a.name.localeCompare(b.name));\n  return result;\n};\n`;
-        fs.writeFileSync(clientCatalogPath, content, 'utf8');
-      }
-    } catch (e) {}
 
     res.status(201).json(newProd);
   } catch (error) {
@@ -263,19 +379,44 @@ export const createProduct = async (req, res) => {
   }
 };
 
-// @desc    Update existing product (Admin)
+// @desc    Update product (Admin)
 // @route   PUT /api/products/:id
 export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (Product.db?.readyState === 1) {
+      const isObjectId = id.match(/^[0-9a-fA-F]{24}$/);
+      const prod = await Product.findOne({
+        $or: [
+          ...(isObjectId ? [{ _id: id }] : []),
+          { slug: id.toLowerCase() },
+          { sku: id.toUpperCase() }
+        ]
+      });
+
+      if (prod) {
+        Object.assign(prod, req.body);
+        if (req.body.name && req.body.brand) {
+          prod.slug = `${req.body.name}-${req.body.brand}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        }
+        const updated = await prod.save();
+        return res.json(updated);
+      }
+    }
+
     const prods = getLocalProducts();
-    const idx = prods.findIndex(p => p.id === id || p.sku === id);
+    const idx = prods.findIndex(p => p.id === id || p._id === id || p.sku === id || p.slug === id);
 
     if (idx === -1) {
       return res.status(404).json({ message: 'Product not found' });
     }
 
-    prods[idx] = { ...prods[idx], ...req.body };
+    prods[idx] = {
+      ...prods[idx],
+      ...req.body,
+      updatedAt: new Date().toISOString()
+    };
     saveLocalProducts(prods);
 
     res.json(prods[idx]);
@@ -289,16 +430,29 @@ export const updateProduct = async (req, res) => {
 export const deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (Product.db?.readyState === 1) {
+      const isObjectId = id.match(/^[0-9a-fA-F]{24}$/);
+      await Product.deleteOne({
+        $or: [
+          ...(isObjectId ? [{ _id: id }] : []),
+          { slug: id.toLowerCase() },
+          { sku: id.toUpperCase() }
+        ]
+      });
+      return res.json({ message: 'Product deleted successfully' });
+    }
+
     let prods = getLocalProducts();
     const beforeLen = prods.length;
-    prods = prods.filter(p => p.id !== id && p.sku !== id);
+    prods = prods.filter(p => p.id !== id && p._id !== id && p.sku !== id && p.slug !== id);
 
     if (prods.length === beforeLen) {
       return res.status(404).json({ message: 'Product not found' });
     }
 
     saveLocalProducts(prods);
-    res.json({ message: 'Product removed successfully' });
+    res.json({ message: 'Product deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
