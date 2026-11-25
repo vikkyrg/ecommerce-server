@@ -1,7 +1,11 @@
 // Clean, zero-dependency token utility using standard Base64 & HMAC-SHA256 via Node crypto
 import crypto from 'crypto';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'ns_stone_chemicals_secure_secret_2025_prod';
+const getJwtSecret = () => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET must be set before using authentication.');
+  return secret;
+};
 
 function base64UrlEncode(str) {
   return Buffer.from(str)
@@ -27,7 +31,7 @@ export const signToken = (payload, expiresInMs = 30 * 24 * 60 * 60 * 1000) => {
   const data = `${encodedHeader}.${encodedPayload}`;
 
   const signature = crypto
-    .createHmac('sha256', JWT_SECRET)
+    .createHmac('sha256', getJwtSecret())
     .update(data)
     .digest('base64')
     .replace(/=/g, '')
@@ -46,7 +50,7 @@ export const verifyToken = token => {
   const data = `${encodedHeader}.${encodedPayload}`;
 
   const expectedSignature = crypto
-    .createHmac('sha256', JWT_SECRET)
+    .createHmac('sha256', getJwtSecret())
     .update(data)
     .digest('base64')
     .replace(/=/g, '')
