@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
+import cors from 'cors';
 import connectDB from './config/db.js';
 import productRoutes from './routes/productRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
@@ -19,6 +20,47 @@ dotenv.config({ path: fileURLToPath(new URL('./.env', import.meta.url)) });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+const normalizeConfiguredOrigin = (value, name) => {
+  if (!value) return null;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`[CORS] ${name} must be a valid frontend origin.`);
+  }
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error(`[CORS] ${name} must use HTTP or HTTPS.`);
+  }
+  return url.origin;
+};
+
+if (process.env.NODE_ENV === 'production' && (!process.env.CLIENT_URL || !process.env.ADMIN_URL)) {
+  throw new Error('CLIENT_URL and ADMIN_URL must be configured for production.');
+}
+
+const allowedOrigins = new Set([
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  normalizeConfiguredOrigin(process.env.CLIENT_URL, 'CLIENT_URL'),
+  normalizeConfiguredOrigin(process.env.ADMIN_URL, 'ADMIN_URL')
+].filter(Boolean));
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, false);
+    if (allowedOrigins.has(origin)) return callback(null, true);
+    console.warn(`[CORS] Blocked origin: ${origin}`);
+    const error = new Error(`CORS origin not allowed: ${origin}`);
+    error.status = 403;
+    return callback(error);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 // ── Request Logger (dev) ──────────────────────────────────────────────────────
 if (process.env.NODE_ENV !== 'production') {
