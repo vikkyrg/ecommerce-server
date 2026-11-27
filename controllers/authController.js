@@ -104,7 +104,7 @@ export const registerUser = async (req, res) => {
         phone: user.phone,
         role: user.role,
         addresses: user.addresses || [],
-        token: generateToken(user._id, user.role)
+        token: generateToken(user._id, user.role, user.email)
       });
     }
 
@@ -135,7 +135,7 @@ export const registerUser = async (req, res) => {
       phone: newUser.phone,
       role: newUser.role,
       addresses: [],
-      token: generateToken(newUser._id, newUser.role)
+      token: generateToken(newUser._id, newUser.role, newUser.email)
     });
   } catch (error) {
     res.status(500).json({ message: error.message || 'Server error during registration' });
@@ -166,7 +166,7 @@ export const loginUser = async (req, res) => {
           role: user.role,
           addresses: user.addresses || [],
           wishlist: user.wishlist || [],
-          token: generateToken(user._id, user.role)
+          token: generateToken(user._id, user.role, user.email)
         });
       }
       return res.status(401).json({ message: 'Invalid email or password' });

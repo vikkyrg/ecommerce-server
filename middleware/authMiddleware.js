@@ -1,7 +1,7 @@
 import { verifyToken, signToken } from '../utils/tokenUtil.js';
 
-export const generateToken = (id, role = 'customer') => {
-  return signToken({ id, role });
+export const generateToken = (id, role = 'customer', email = '') => {
+  return signToken({ id: String(id), role, email });
 };
 
 export const protect = (req, res, next) => {
@@ -10,7 +10,7 @@ export const protect = (req, res, next) => {
     try {
       token = req.headers.authorization.split(' ')[1];
       const decoded = verifyToken(token);
-      if (!decoded) {
+      if (!decoded || !decoded.id) {
         return res.status(401).json({ message: 'Not authorized, token invalid or expired' });
       }
       req.user = decoded;
@@ -20,9 +20,20 @@ export const protect = (req, res, next) => {
     }
   }
 
-  if (!token) {
-    return res.status(401).json({ message: 'Not authorized, no token provided' });
+  return res.status(401).json({ message: 'Not authorized, no token provided' });
+};
+
+export const optionalProtect = (req, res, next) => {
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    try {
+      const token = req.headers.authorization.split(' ')[1];
+      const decoded = verifyToken(token);
+      if (decoded && decoded.id) {
+        req.user = decoded;
+      }
+    } catch (error) {}
   }
+  return next();
 };
 
 export const adminOnly = (req, res, next) => {

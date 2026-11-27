@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Category from './models/Category.js';
 import Brand from './models/Brand.js';
 import Product from './models/Product.js';
+import { INITIAL_PRODUCT_STOCK } from './utils/productStock.js';
 
 dotenv.config({ path: './server/.env' });
 
@@ -163,10 +164,10 @@ export async function addAkemiProducts() {
         variants: [],
         price: null,
         mrp: null,
-        stock: null,
+        stock: INITIAL_PRODUCT_STOCK,
         sku: '',
         isActive: true,
-        inStock: null
+        inStock: true
       });
       createdCount++;
       console.log(`[Created Product] ${product.name}`);

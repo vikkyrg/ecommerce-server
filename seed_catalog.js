@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Category from './models/Category.js';
 import Brand from './models/Brand.js';
 import Product from './models/Product.js';
+import { INITIAL_PRODUCT_STOCK } from './utils/productStock.js';
 
 dotenv.config({ path: './server/.env' });
 
@@ -537,7 +538,8 @@ export async function seedCatalog() {
             productImages: [],
             variants: p.variants || [],
             isActive: true,
-            inStock: null
+            stock: INITIAL_PRODUCT_STOCK,
+            inStock: true
           });
           productsCreated++;
           if (p.variants?.length) totalVariantsCreated += p.variants.length;
@@ -572,7 +574,8 @@ export async function seedCatalog() {
           productImages: [],
           variants: up.variants || [],
           isActive: true,
-          inStock: null
+          stock: INITIAL_PRODUCT_STOCK,
+          inStock: true
         });
         productsCreated++;
         unassignedProductsCount++;

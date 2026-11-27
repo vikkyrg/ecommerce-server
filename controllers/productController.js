@@ -5,6 +5,8 @@ import mongoose from 'mongoose';
 import Product from '../models/Product.js';
 import Category from '../models/Category.js';
 import Brand from '../models/Brand.js';
+import { optionalNumber, parseProductPricing, withOriginalPrice } from '../utils/productPricing.js';
+import { INITIAL_PRODUCT_STOCK, parseStockQuantity } from '../utils/productStock.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +29,37 @@ const getLocalProducts = () => {
 const saveLocalProducts = prods => {
   fs.writeFileSync(productsFilePath, JSON.stringify(prods, null, 2), 'utf8');
 };
+
+const hasProductPrice = product =>
+  [product.originalPrice, product.price].some(value =>
+    value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value)) && Number(value) > 0
+  );
+
+const preserveExistingDiscountPercentage = (product, pricing) => {
+  const existingOriginalPrice = Number(product.originalPrice ?? product.price);
+  const existingDiscountPrice = product.discountPrice == null || product.discountPrice === ''
+    ? null
+    : Number(product.discountPrice);
+  const existingPercentage = Number(product.discountPercentage);
+  const samePrices = existingOriginalPrice === pricing.originalPrice &&
+    existingDiscountPrice === pricing.discountPrice;
+
+  return samePrices &&
+    pricing.discountPrice !== null &&
+    Number.isFinite(existingPercentage) &&
+    existingPercentage > 0 &&
+    existingPercentage <= 100
+    ? existingPercentage
+    : pricing.discountPercentage;
+};
+
+const productLookup = id => ({
+  $or: [
+    ...(mongoose.isValidObjectId(id) ? [{ _id: id }] : []),
+    { slug: id.toLowerCase() },
+    { sku: id.toUpperCase() }
+  ]
+});
 
 const cleanName = value => String(value || '').replace(/\s+/g, ' ').trim();
 const slugify = value => cleanName(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -74,15 +107,10 @@ const resolveBrand = async value => {
   });
 };
 
-const optionalNumber = (value, label, { integer = false } = {}) => {
-  if (value === '' || value === null || value === undefined) return null;
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < 0 || (integer && !Number.isInteger(number))) {
-    const error = new Error(`${label} must be a non-negative ${integer ? 'integer' : 'number'}`);
-    error.status = 400;
-    throw error;
-  }
-  return number;
+const parseFeatures = val => {
+  if (Array.isArray(val)) return val.map(cleanName).filter(Boolean);
+  if (typeof val === 'string') return val.split(/\r?\n/).map(cleanName).filter(Boolean);
+  return [];
 };
 
 // @desc    Get all products with search, filter, sort & pagination
@@ -160,7 +188,7 @@ export const getProducts = async (req, res) => {
         }
 
         if (inStock === 'true') {
-          query.inStock = true;
+          query.stock = { $gt: 0 };
         }
 
         if (isFeatured === 'true') {
@@ -172,9 +200,16 @@ export const getProducts = async (req, res) => {
         }
 
         if (minPrice || maxPrice) {
-          query.price = {};
-          if (minPrice) query.price.$gte = Number(minPrice);
-          if (maxPrice) query.price.$lte = Number(maxPrice);
+          const priceRange = {};
+          if (minPrice) priceRange.$gte = Number(minPrice);
+          if (maxPrice) priceRange.$lte = Number(maxPrice);
+          query.$and = query.$and || [];
+          query.$and.push({
+            $or: [
+              { price: priceRange },
+              { originalPrice: priceRange }
+            ]
+          });
         }
 
         let sortOption = { createdAt: -1 };
@@ -194,7 +229,7 @@ export const getProducts = async (req, res) => {
 
         return res.json({
           products: dbProducts.map(product => {
-            const obj = product.toObject();
+            const obj = withOriginalPrice(product.toObject());
             return {
               ...obj,
               image: obj.image || product.categoryRef?.image || '',
@@ -242,7 +277,7 @@ export const getProducts = async (req, res) => {
     }
 
     if (inStock === 'true') {
-      items = items.filter(p => p.inStock === true);
+      items = items.filter(p => Number.isSafeInteger(p.stock) && p.stock > 0);
     }
 
     if (isFeatured === 'true') {
@@ -253,18 +288,20 @@ export const getProducts = async (req, res) => {
       items = items.filter(p => p.isBestSeller === true);
     }
 
-    if (minPrice) items = items.filter(p => p.price >= Number(minPrice));
-    if (maxPrice) items = items.filter(p => p.price <= Number(maxPrice));
+    if (minPrice) items = items.filter(p => Number(p.originalPrice ?? p.price) >= Number(minPrice));
+    if (maxPrice) items = items.filter(p => Number(p.originalPrice ?? p.price) <= Number(maxPrice));
 
     // Sort
-    if (sort === 'price-asc' || sort === 'price-low') items.sort((a, b) => (a.price || 0) - (b.price || 0));
-    else if (sort === 'price-desc' || sort === 'price-high') items.sort((a, b) => (b.price || 0) - (a.price || 0));
+    if (sort === 'price-asc' || sort === 'price-low') items.sort((a, b) => Number(a.originalPrice ?? a.price ?? 0) - Number(b.originalPrice ?? b.price ?? 0));
+    else if (sort === 'price-desc' || sort === 'price-high') items.sort((a, b) => Number(b.originalPrice ?? b.price ?? 0) - Number(a.originalPrice ?? a.price ?? 0));
     else if (sort === 'name') items.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     else if (sort === 'rating') items.sort((a, b) => (b.rating || 0) - (a.rating || 0));
     else items.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
     const total = items.length;
-    const paginated = items.slice((pageNum - 1) * limitNum, pageNum * limitNum);
+    const paginated = items
+      .slice((pageNum - 1) * limitNum, pageNum * limitNum)
+      .map(withOriginalPrice);
 
     res.json({
       products: paginated,
@@ -276,6 +313,14 @@ export const getProducts = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+export const getProductsByCategory = (req, res) =>
+  getProducts({
+    query: {
+      ...req.query,
+      category: req.params.category
+    }
+  }, res);
 
 // @desc    Get featured products
 // @route   GET /api/products/featured
@@ -291,7 +336,7 @@ export const getFeaturedProducts = async (req, res) => {
       return res.json(prods.filter(product =>
         product.categoryRef?.isActive !== false && product.brandRef?.isActive !== false
       ).map(product => {
-        const obj = product.toObject();
+        const obj = withOriginalPrice(product.toObject());
         return {
           ...obj,
           image: obj.image || product.categoryRef?.image || '',
@@ -303,7 +348,7 @@ export const getFeaturedProducts = async (req, res) => {
 
     const local = getLocalProducts().filter(p => p.isActive !== false);
     const featured = local.filter(p => p.isFeatured || p.isBestSeller).slice(0, 8);
-    res.json(featured.length > 0 ? featured : local.slice(0, 8));
+    res.json((featured.length > 0 ? featured : local.slice(0, 8)).map(withOriginalPrice));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -326,14 +371,15 @@ export const getProductById = async (req, res) => {
               { sku: id.toUpperCase() }
             ]
           },
-          { isActive: { $ne: false } }
+          { isActive: { $ne: false } },
+          { $or: [{ price: { $gt: 0 } }, { originalPrice: { $gt: 0 } }] }
         ]
       }).populate('categoryRef', 'name slug image isActive').populate('brandRef', 'name slug isActive');
       if (prod) {
         if (prod.categoryRef?.isActive === false || prod.brandRef?.isActive === false) {
           return res.status(404).json({ message: 'Product not found' });
         }
-        const obj = prod.toObject();
+        const obj = withOriginalPrice(prod.toObject());
         return res.json({
           ...obj,
           image: obj.image || prod.categoryRef?.image || '',
@@ -354,8 +400,10 @@ export const getProductById = async (req, res) => {
         (p.sku && p.sku.toUpperCase() === id.toUpperCase())
     );
 
-    if (!prod) return res.status(404).json({ message: 'Product not found' });
-    res.json(prod);
+    if (!prod || prod.isActive === false || !hasProductPrice(prod)) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    res.json(withOriginalPrice(prod));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -386,8 +434,13 @@ export const createProduct = async (req, res) => {
       return res.status(400).json({ message: 'Selected brand is not assigned to this category' });
     }
     const sku = cleanName(body.sku).toUpperCase();
-    const price = optionalNumber(body.price, 'Price');
-    const stock = optionalNumber(body.stock, 'Stock', { integer: true });
+    const pricing = parseProductPricing(
+      body.originalPrice !== undefined ? body.originalPrice : body.price,
+      body.discountPrice !== undefined ? body.discountPrice : body.offerPrice
+    );
+    const stock = body.stock === undefined || body.stock === null || body.stock === ''
+      ? INITIAL_PRODUCT_STOCK
+      : parseStockQuantity(body.stock);
     const product = {
       name: productName,
       brand: brand?.name || '',
@@ -396,10 +449,13 @@ export const createProduct = async (req, res) => {
       subcategory: cleanName(body.subcategory),
       description: body.description || '',
       shortDescription: body.shortDescription || '',
+      applications: body.applications || '',
+      features: parseFeatures(body.features),
       sku,
-      price,
-      mrp: optionalNumber(body.mrp, 'MRP'),
-      discount: optionalNumber(body.discount, 'Discount') ?? 0,
+      ...pricing,
+      price: pricing.originalPrice,
+      mrp: optionalNumber(body.mrp, 'MRP') ?? (pricing.discountPrice ? pricing.originalPrice : null),
+      discount: pricing.discountPercentage ?? 0,
       stock,
       size: body.size || '',
       weight: body.weight || '',
@@ -510,16 +566,34 @@ export const updateProduct = async (req, res) => {
         prod.brandRef = brand?._id;
         prod.sku = sku;
         for (const field of [
-          'subcategory', 'description', 'shortDescription', 'size', 'weight', 'unit', 'image',
+          'subcategory', 'description', 'shortDescription', 'applications', 'size', 'weight', 'unit', 'image',
           'productImages', 'variants', 'specifications', 'isFeatured', 'isBestSeller', 'isActive',
           'seoTitle', 'seoDescription', 'notes'
         ]) {
           if (body[field] !== undefined) prod[field] = body[field];
         }
-        if (body.price !== undefined) prod.price = optionalNumber(body.price, 'Price');
+
+        if (body.features !== undefined) {
+          prod.features = parseFeatures(body.features);
+        }
+
+        const updatedPriceInput = body.originalPrice !== undefined
+          ? body.originalPrice
+          : body.price !== undefined
+            ? body.price
+            : (prod.originalPrice ?? prod.price);
+        const discountPriceInput = body.discountPrice !== undefined ? body.discountPrice : (body.offerPrice !== undefined ? body.offerPrice : prod.discountPrice);
+        const pricing = parseProductPricing(updatedPriceInput, discountPriceInput);
+        const discountPercentage = preserveExistingDiscountPercentage(prod, pricing);
+        prod.originalPrice = pricing.originalPrice;
+        prod.price = pricing.originalPrice;
+        prod.discountPrice = pricing.discountPrice;
+        prod.discountPercentage = discountPercentage;
+
         if (body.mrp !== undefined) prod.mrp = optionalNumber(body.mrp, 'MRP');
-        if (body.discount !== undefined) prod.discount = optionalNumber(body.discount, 'Discount');
-        if (body.stock !== undefined) prod.stock = optionalNumber(body.stock, 'Stock', { integer: true });
+        else if (prod.discountPrice) prod.mrp = prod.price;
+        prod.discount = discountPercentage ?? 0;
+        if (body.stock !== undefined) prod.stock = parseStockQuantity(body.stock);
         if (body.inStock !== undefined) prod.inStock = body.inStock === true;
         else if (body.stock !== undefined) prod.inStock = prod.stock === null ? null : prod.stock > 0;
         prod.slug = slugify(`${nextName}-${category.slug}-${brand?.slug || 'unbranded'}`);
@@ -560,12 +634,36 @@ export const updateProduct = async (req, res) => {
     if (sku && prods.some((item, index) => index !== idx && item.sku?.toUpperCase() === sku)) {
       return res.status(409).json({ message: 'A product with this SKU already exists' });
     }
-    const updated = { ...prods[idx], ...body, name: nextName, category: category.slug, categoryRef: category._id, brand: brand?.name || '', brandRef: brand?._id, sku };
-    if (body.price !== undefined) updated.price = optionalNumber(body.price, 'Price');
+    const updated = {
+      ...prods[idx],
+      ...body,
+      name: nextName,
+      category: category.slug,
+      categoryRef: category._id,
+      brand: brand?.name || '',
+      brandRef: brand?._id,
+      sku,
+      applications: body.applications !== undefined ? body.applications : (prods[idx].applications || ''),
+      features: body.features !== undefined ? parseFeatures(body.features) : (prods[idx].features || [])
+    };
+    const updatedPriceInput = body.originalPrice !== undefined
+      ? body.originalPrice
+      : body.price !== undefined
+        ? body.price
+        : (prods[idx].originalPrice ?? prods[idx].price);
+    const discountPriceInput = body.discountPrice !== undefined ? body.discountPrice : (body.offerPrice !== undefined ? body.offerPrice : prods[idx].discountPrice);
+    const pricing = parseProductPricing(updatedPriceInput, discountPriceInput);
+    const discountPercentage = preserveExistingDiscountPercentage(prods[idx], pricing);
+    updated.originalPrice = pricing.originalPrice;
+    updated.price = pricing.originalPrice;
+    updated.discountPrice = pricing.discountPrice;
+    updated.discountPercentage = discountPercentage;
+
     if (body.mrp !== undefined) updated.mrp = optionalNumber(body.mrp, 'MRP');
-    if (body.discount !== undefined) updated.discount = optionalNumber(body.discount, 'Discount');
+    else if (updated.discountPrice) updated.mrp = updated.price;
+    updated.discount = discountPercentage ?? 0;
     if (body.stock !== undefined) {
-      updated.stock = optionalNumber(body.stock, 'Stock', { integer: true });
+      updated.stock = parseStockQuantity(body.stock);
       updated.inStock = updated.stock === null ? null : updated.stock > 0;
     }
     updated.slug = slugify(`${nextName}-${category.slug}-${brand?.slug || 'unbranded'}`);
@@ -579,6 +677,101 @@ export const updateProduct = async (req, res) => {
     res.json(prods[idx]);
   } catch (error) {
     res.status(error.status || 500).json({ message: error.message });
+  }
+};
+
+export const updateProductPrice = async (req, res) => {
+  try {
+    if (!requireDatabase(res)) return;
+    if (Product.db?.readyState !== 1) {
+      return res.status(503).json({ message: 'Catalog database is unavailable' });
+    }
+    const product = await Product.findOne(productLookup(req.params.id));
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    const body = req.body || {};
+    const originalPriceInput = body.originalPrice ?? body.regularPrice ?? body.price ??
+      product.originalPrice ?? product.price;
+    const discountPriceInput = body.discountPrice !== undefined
+      ? body.discountPrice
+      : product.discountPrice;
+    const pricing = parseProductPricing(originalPriceInput, discountPriceInput);
+    const discountPercentage = preserveExistingDiscountPercentage(product, pricing);
+    const mrp = body.mrp !== undefined
+      ? optionalNumber(body.mrp, 'MRP')
+      : pricing.discountPrice === null
+        ? null
+        : pricing.originalPrice;
+
+    const updated = await Product.findByIdAndUpdate(product._id, {
+      $set: {
+        ...pricing,
+        discountPercentage,
+        mrp,
+        discount: discountPercentage ?? 0
+      }
+    }, { new: true, runValidators: true });
+
+    return res.json(withOriginalPrice(updated.toObject()));
+  } catch (error) {
+    return res.status(error.status || 500).json({ message: error.message });
+  }
+};
+
+export const updateProductStock = async (req, res) => {
+  try {
+    if (!requireDatabase(res)) return;
+    const stock = parseStockQuantity(req.body?.stock);
+    const product = await Product.findOneAndUpdate(
+      productLookup(req.params.id),
+      { $set: { stock, inStock: stock > 0 } },
+      { new: true, runValidators: true }
+    );
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    return res.json(withOriginalPrice(product.toObject()));
+  } catch (error) {
+    return res.status(error.status || 500).json({ message: error.message });
+  }
+};
+
+export const updateProductDescription = async (req, res) => {
+  try {
+    if (!requireDatabase(res)) return;
+    if (Product.db?.readyState !== 1) {
+      return res.status(503).json({ message: 'Catalog database is unavailable' });
+    }
+    const body = req.body || {};
+    const update = {};
+
+    if (body.shortDescription !== undefined) {
+      if (typeof body.shortDescription !== 'string') {
+        return res.status(400).json({ message: 'Short Description must be text' });
+      }
+      update.shortDescription = body.shortDescription.trim();
+    }
+
+    const description = body.description !== undefined ? body.description : body.fullDescription;
+    if (description !== undefined) {
+      if (typeof description !== 'string') {
+        return res.status(400).json({ message: 'Full Product Description must be text' });
+      }
+      update.description = description.trim();
+    }
+
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ message: 'Provide a short or full product description to update' });
+    }
+
+    const updated = await Product.findOneAndUpdate(
+      productLookup(req.params.id),
+      { $set: update },
+      { new: true, runValidators: true }
+    );
+    if (!updated) return res.status(404).json({ message: 'Product not found' });
+
+    return res.json(withOriginalPrice(updated.toObject()));
+  } catch (error) {
+    return res.status(error.status || 500).json({ message: error.message });
   }
 };
 

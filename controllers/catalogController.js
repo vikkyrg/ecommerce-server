@@ -8,6 +8,7 @@ import Category from '../models/Category.js';
 import Brand from '../models/Brand.js';
 import Product from '../models/Product.js';
 import { parseWebsiteWorkbook } from '../utils/websiteWorkbookParser.js';
+import { INITIAL_PRODUCT_STOCK } from '../utils/productStock.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -173,7 +174,7 @@ const replaceCatalog = async (parsed, mappingDecisions) => {
       price: null,
       mrp: null,
       discount: 0,
-      stock: null,
+      stock: INITIAL_PRODUCT_STOCK,
       size: product.variants.map(variant => variant.size).filter(Boolean).join(', '),
       weight: '',
       unit: '',
@@ -181,7 +182,7 @@ const replaceCatalog = async (parsed, mappingDecisions) => {
       productImages: [],
       variants: product.variants,
       specifications: {},
-      inStock: null,
+      inStock: true,
       isActive: true,
       notes: product.notes || '',
       sourceCell: product.sourceCell,
@@ -247,8 +248,8 @@ const replaceCatalog = async (parsed, mappingDecisions) => {
             throw new Error(`Saved product "${product.name}" has an invalid brand-category relationship`);
           }
         }
-        if (product.price !== null || product.stock !== null) {
-          throw new Error(`Saved product "${product.name}" has an invented price or stock value`);
+        if (product.price !== null || product.stock !== INITIAL_PRODUCT_STOCK) {
+          throw new Error(`Saved product "${product.name}" has an invented price or invalid initial stock`);
         }
       }
     });
